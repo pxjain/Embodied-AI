@@ -1,4 +1,3 @@
-#just testing agian
 import json 
 import vosk 
 import pyaudio 
