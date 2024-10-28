@@ -9,21 +9,17 @@ import pyttsx3
 # VOSK model path
 MODEL_PATH = r"C:\Users\Student\Documents\Project\VOSK Models\vosk-model-en-us-0.22"
 
-# Initialize VOSK model - STT
-model = vosk.Model(MODEL_PATH)
-vosk_recognizer = vosk.KaldiRecognizer(model, 16000)
+recognizer_choice = recognizer_choice = input("Type 'v' for Vosk or 'g' for Google Speech Recognition: ").strip().lower()
 
-# Initialize PyAudio for audio input
-audio = pyaudio.PyAudio()
-stream = audio.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=16384)
-stream.start_stream()
 
 # ChatGPT API setup
-client = OpenAI(api_key='your_api_key_here')  # Replace with your API key
+client = OpenAI(api_key='')  # Replace with your API key
 MODEL = "gpt-4o"
 
 # Initialize TTS
 engine = pyttsx3.init()
+voices = engine.getProperty('voices')
+engine.setProperty('voice', voices[1].id)
 
 # Function to convert text to speech
 def speak(text):
@@ -44,6 +40,7 @@ def send_to_chatgpt(text):
         response = completion.choices[0].message.content
         if response:  # Check if the response is not empty
             print("CHATGPT:", response)
+            speak(response)
         else:
             print("CHATGPT: No response received.")
     else:
@@ -63,25 +60,20 @@ def extract_command(text):
 
 # Main transcription loop
 try:
-    print("Listening... (Press 'v' for Vosk, 'g' for Google Speech Recognition, 'q' to quit)")
-    recognizer_choice = 'vosk'  # Default recognizer choice
+    if recognizer_choice == 'v':
 
-    command = input("Type 'v' for Vosk or 'g' for Google Speech Recognition: ").strip().lower()
-    if command == 'v':
-        recognizer_choice = 'vosk'
-        print("Switched to Vosk recognizer.")
-    elif command == 'g':
-        recognizer_choice = 'google'
-        print("Switched to Google Speech Recognition.")
-    # elif command == 'q':
-    #     print("Exiting...")
-    #     break
-    # else:
-    #     print("Invalid input. Please enter 'v', 'g', or 'q'.")
-    #     continue
-    
-    while True:
-        if recognizer_choice == 'vosk':
+        # Initialize VOSK model - STT
+        model = vosk.Model(MODEL_PATH)
+        vosk_recognizer = vosk.KaldiRecognizer(model, 16000)
+
+        # Initialize PyAudio for audio input
+        audio = pyaudio.PyAudio()
+        stream = audio.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=16384)
+        stream.start_stream()
+        
+        print("Vosk:Listening")
+
+        while True:
             data = stream.read(4096, exception_on_overflow=False)
             if vosk_recognizer.AcceptWaveform(data):
                 result = json.loads(vosk_recognizer.Result())
@@ -93,38 +85,40 @@ try:
                         print(f"Sending to ChatGPT: {command_text}")
                         send_to_chatgpt(command_text)
 
-        elif recognizer_choice == 'google':
-            r = sr.Recognizer()
+    elif recognizer_choice == 'g':
+        r = sr.Recognizer()
+        print("GR: Listening...")
+
+        # Listen for a single command and return control to the main loop
+        while True:
             with sr.Microphone() as source:
-                print("Google Recognizer: Listening...")
-                r.pause_threshold = 1.5  # Increase pause threshold
+                r.pause_threshold = 3  # Increase pause threshold
                 r.energy_threshold = 300  # Adjust for ambient noise
 
-                # Listen for a single command and return control to the main loop
-                while True:
-                    try:
-                        audio = r.listen(source, timeout=None)  # Continuously listen
-                        print("Recognizing...")
-                        query = r.recognize_google(audio, language='en-IN')
-                        print(f"user said: {query}")
-                        
-                        # Optionally, you can add a condition to break the loop
-                        if query.lower() == "stop":  # Example command to stop listening
-                            print("Stopping the listener.")
-                            break
+                try:
+                    audio = r.listen(source, timeout=None)  # Continuously listen
+                    text = r.recognize_google(audio, language='en-IN')
+                    print(f"You said: {text}")
 
-                    except sr.UnknownValueError:
-                        print("Sorry, I could not understand the audio. Please try again.")
-                    except sr.RequestError:
-                        print("Could not request results from Google Speech Recognition service.")
-                    except KeyboardInterrupt:
-                        print("\nStopped by user.")
-                        break  # Break the loop if user interrupts
+                except sr.UnknownValueError:
+                    print("Sorry, I could not understand the audio. Please try again.")
+                except sr.RequestError:
+                    print("Could not request results from Google Speech Recognition service.")
+                except KeyboardInterrupt:
+                    print("\nStopping...")
+                    break  # Break the loop if user interrupts
+
+                command_text = extract_command(text)
+                if command_text:
+                    print(f"Sending to ChatGPT: {command_text}")
+                    send_to_chatgpt(command_text)
 
 except KeyboardInterrupt:
     print("Stopping...")
 
 finally:
-    stream.stop_stream()
-    stream.close()
-    audio.terminate()
+    # Only close stream and audio if Vosk was selected and stream was initialized
+    if recognizer_choice == 'v' and stream is not None:
+        stream.stop_stream()
+        stream.close()
+        audio.terminate()
